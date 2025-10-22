@@ -6,8 +6,9 @@ require_once 'classes/ResponseHelper.php';
 $repo = new StringRepository();
 $method = $_SERVER['REQUEST_METHOD'];
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$query = $_GET;
 
-// CREATE / POST /strings
+// POST /strings (Create & Analyze)
 if ($path === '/strings' && $method === 'POST') {
     $input = json_decode(file_get_contents('php://input'), true);
     if (!isset($input['value'])) ResponseHelper::json(['error' => 'Missing value field'], 400);
@@ -28,7 +29,7 @@ if ($path === '/strings' && $method === 'POST') {
     ResponseHelper::json($record, 201);
 }
 
-// GET /strings/{value}
+//  GET /strings/{value} (Get one)
 if (preg_match('#^/strings/(.+)$#', $path, $matches) && $method === 'GET') {
     $value = urldecode($matches[1]);
     $record = $repo->findByValue($value);
@@ -36,7 +37,41 @@ if (preg_match('#^/strings/(.+)$#', $path, $matches) && $method === 'GET') {
     ResponseHelper::json($record, 200);
 }
 
-// DELETE /strings/{value}
+//  GET /strings (Get all or filtered)
+if ($path === '/strings' && $method === 'GET') {
+    $records = $repo->getAll();
+
+    // Filtering logic
+    if (!empty($query)) {
+        $records = array_filter($records, function ($r) use ($query) {
+            $p = $r['properties'];
+            if (isset($query['is_palindrome']) && filter_var($query['is_palindrome'], FILTER_VALIDATE_BOOLEAN) !== $p['is_palindrome']) {
+                return false;
+            }
+            if (isset($query['min_length']) && $p['length'] < (int)$query['min_length']) {
+                return false;
+            }
+            if (isset($query['max_length']) && $p['length'] > (int)$query['max_length']) {
+                return false;
+            }
+            if (isset($query['word_count']) && $p['word_count'] != (int)$query['word_count']) {
+                return false;
+            }
+            if (isset($query['contains_character']) && !str_contains(strtolower($r['value']), strtolower($query['contains_character']))) {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    ResponseHelper::json([
+        'data' => array_values($records),
+        'count' => count($records),
+        'filters_applied' => $query
+    ], 200);
+}
+
+// DELETE /strings/{value} (Delete one)
 if (preg_match('#^/strings/(.+)$#', $path, $matches) && $method === 'DELETE') {
     $value = urldecode($matches[1]);
     $record = $repo->findByValue($value);
